@@ -1,0 +1,27 @@
+{
+  "name": "back",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/senecamanu/jubelio-back.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/senecamanu/jubelio-back/issues"
+  },
+  "homepage": "https://github.com/senecamanu/jubelio-back#readme",
+  "dependencies": {
+    "@hapi/hapi": "^19.1.1",
+    "axios": "^0.19.2",
+    "fast-xml-parser": "^3.16.0",
+    "pg": "^7.18.1"
+  }
+}
