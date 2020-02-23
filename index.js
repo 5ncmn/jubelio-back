@@ -4,6 +4,7 @@ const Hapi = require("@hapi/hapi");
 const Axios = require("axios");
 const FXP = require("fast-xml-parser");
 const { Client } = require("pg");
+const DB = require("./db");
 
 // im using scalegrid for db
 // jdbc:postgresql://SG-jubelio-473-pgsql-master.servers.mongodirector.com:5432/<your-database-name>
@@ -63,24 +64,92 @@ const init = async () => {
     }
   });
 
-  // const { Client } = require('pg')
   server.route({
     method: "GET",
     path: "/db-connection",
     handler: async (request, h) => {
       try {
-        const client = new Client();
-        console.log("we got here!");
-        await client.connect();
-        console.log("we got here 2!");
-        const res = await client.query("SELECT $1::text as message", [
-          "Hello world!"
+        const query = await DB.query("SELECT $1::text as message", [
+          "hello world"
         ]);
-
-        await client.end();
-        return res;
+        return {
+          query,
+          message: "Query successful."
+        };
       } catch (err) {
         return err;
+      }
+    }
+  });
+
+  server.route({
+    method: "GET",
+    path: "/all",
+    handler: async (request, h) => {
+      try {
+        const queryAll = await DB.query(`
+          SELECT * FROM product;
+        `);
+
+        return queryAll;
+      } catch (err) {
+        return err;
+      }
+    }
+  });
+
+  server.route({
+    method: "POST",
+    path: "/test-insert",
+    handler: async (request, h) => {
+      try {
+        const addNewProduct = await DB.query(`
+          INSERT INTO product VALUES(
+            'sku-0122',
+            'TEST PRODUCT NAME',
+            '32000',
+            '12332311',
+            '{"https://static.bmdstatic.com/pk/product/medium/5a669c252bde9.jpg", "https://p.ipricegroup.com/uploaded_71b7e3bc05dc6de7a9d4205c562c3fd6.jpg"}'
+          )
+        `);
+
+        return {
+          product: addNewProduct
+        };
+      } catch (err) {
+        return err;
+      }
+    }
+  });
+
+  server.route({
+    method: "POST",
+    path: "/reset",
+    handler: async (request, h) => {
+      try {
+        const newDB = await DB.query(`
+        CREATE TABLE product (
+          sku             VARCHAR PRIMARY KEY,
+          name            VARCHAR NOT NULL,
+          price           INT DEFAULT 0,
+          productNumber   INT,
+          productImages   TEXT[]
+        )`);
+
+        if (!newDB.success) {
+          return {
+            message: "wow error."
+          };
+        }
+
+        return {
+          newDB,
+          message: "it works."
+        };
+      } catch (err) {
+        return {
+          error: err
+        };
       }
     }
   });
