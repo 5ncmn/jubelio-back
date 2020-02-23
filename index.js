@@ -3,15 +3,11 @@
 const Hapi = require("@hapi/hapi");
 const Axios = require("axios");
 const FXP = require("fast-xml-parser");
-const { Client } = require("pg");
 const DB = require("./db");
-
-// im using scalegrid for db
-// jdbc:postgresql://SG-jubelio-473-pgsql-master.servers.mongodirector.com:5432/<your-database-name>
 
 const init = async () => {
   const server = Hapi.server({
-    port: 3000,
+    port: 3001,
     host: "localhost"
   });
 
@@ -19,6 +15,9 @@ const init = async () => {
   server.route({
     method: "POST",
     path: "/query-elevenia",
+    options: {
+      cors: true
+    },
     handler: async (request, h) => {
       try {
         const eleveniaData = await Axios({
@@ -57,60 +56,30 @@ const init = async () => {
           })
         );
 
-        return cleanUpData;
-      } catch (err) {
-        return err;
-      }
-    }
-  });
+        // format for batch upload
+        const sqlStringForBatchUpload = cleanUpData.reduce(
+          (total, current, index) => {
+            return (
+              total +
+              `${index ? ", " : ""}(
+            '${current.sku}',
+            '${current.name}',
+            '${current.price}',
+            '${current.productNumber}',
+            '{${current.productImages.reduce((totalImage, currentImage) => {
+              return (
+                totalImage + `${totalImage.length ? ", " : ""}"${currentImage}"`
+              );
+            }, "")}}'
+          )`
+            );
+          },
+          ""
+        );
 
-  server.route({
-    method: "GET",
-    path: "/db-connection",
-    handler: async (request, h) => {
-      try {
-        const query = await DB.query("SELECT $1::text as message", [
-          "hello world"
-        ]);
-        return {
-          query,
-          message: "Query successful."
-        };
-      } catch (err) {
-        return err;
-      }
-    }
-  });
-
-  server.route({
-    method: "GET",
-    path: "/all",
-    handler: async (request, h) => {
-      try {
-        const queryAll = await DB.query(`
-          SELECT * FROM product;
-        `);
-
-        return queryAll;
-      } catch (err) {
-        return err;
-      }
-    }
-  });
-
-  server.route({
-    method: "POST",
-    path: "/test-insert",
-    handler: async (request, h) => {
-      try {
+        // batch upload
         const addNewProduct = await DB.query(`
-          INSERT INTO product VALUES(
-            'sku-0122',
-            'TEST PRODUCT NAME',
-            '32000',
-            '12332311',
-            '{"https://static.bmdstatic.com/pk/product/medium/5a669c252bde9.jpg", "https://p.ipricegroup.com/uploaded_71b7e3bc05dc6de7a9d4205c562c3fd6.jpg"}'
-          )
+          INSERT INTO product VALUES${sqlStringForBatchUpload}
         `);
 
         return {
@@ -122,23 +91,184 @@ const init = async () => {
     }
   });
 
+  // Update
+  server.route({
+    method: "PUT",
+    path: "/{productNumber}",
+    options: {
+      cors: true
+    },
+    handler: async (request, h) => {
+      try {
+        if (request.payload) {
+          const updateString = Object.entries(request.payload).reduce(
+            (total, current, index) => {
+              if (current[0] == "productimages") {
+                return (
+                  total +
+                  ", productimages = " +
+                  `'{${current[1].reduce((totalImage, currentImage) => {
+                    return (
+                      totalImage +
+                      `${totalImage.length ? "," : ""}"${currentImage}"`
+                    );
+                  }, "")}}'`
+                );
+              } else {
+                return (
+                  total + `${index ? ", " : ""}${current[0]} = '${current[1]}'`
+                );
+              }
+            },
+            ""
+          );
+
+          const updateDB = await DB.query(`
+            UPDATE product
+            SET ${updateString}
+            WHERE productNumber = ${request.params.productNumber};
+          `);
+
+          if (updateDB.response.rowCount) {
+            const queryDB = await DB.query(`
+            SELECT * 
+            FROM product
+            ORDER BY productNumber ASC
+          `);
+
+            return {
+              code: "001",
+              data: queryDB.response.rows,
+              message: "Updated successfully."
+            };
+          } else {
+            return {
+              code: "002",
+              message: "0 rows updated."
+            };
+          }
+        }
+      } catch (err) {
+        return err;
+      }
+    }
+  });
+
+  // Get one
+  server.route({
+    method: "GET",
+    path: "/{productNumber}",
+    handler: async (request, h) => {
+      try {
+        const updateDB = await DB.query(`
+            SELECT * FROM product WHERE productNumber = ${request.params.productNumber}
+          `);
+
+        return {
+          data: updateDB.response.rows
+        };
+      } catch (err) {
+        return err;
+      }
+    }
+  });
+
+  // Delete
+  server.route({
+    method: "DELETE",
+    path: "/{productNumber}",
+    options: {
+      cors: true
+    },
+    handler: async (request, h) => {
+      try {
+        const updateDB = await DB.query(`
+            DELETE FROM product WHERE productNumber = ${request.params.productNumber}
+          `);
+
+        if (updateDB.response.rowCount) {
+          const queryDB = await DB.query(`
+            SELECT * 
+            FROM product
+            ORDER BY productNumber ASC
+          `);
+
+          return {
+            code: "001",
+            data: queryDB.response.rows,
+            message: "Deleted successfully."
+          };
+        } else {
+          return {
+            code: "002",
+            message: "0 rows deleted."
+          };
+        }
+      } catch (err) {
+        return err;
+      }
+    }
+  });
+
+  server.route({
+    method: "GET",
+    path: "/",
+    options: {
+      cors: true
+    },
+    handler: async (request, h) => {
+      try {
+        const queryAll = await DB.query(`
+          SELECT * 
+          FROM product
+          ORDER BY ${request.query.orderBy || "productNumber"} ${request.query
+          .orderIn || "ASC"}
+        `);
+
+        return queryAll.response.rows;
+      } catch (err) {
+        return err;
+      }
+    }
+  });
+
+  // NUKE
   server.route({
     method: "POST",
     path: "/reset",
+    options: {
+      cors: true
+    },
     handler: async (request, h) => {
       try {
         const newDB = await DB.query(`
         CREATE TABLE product (
-          sku             VARCHAR PRIMARY KEY,
+          sku             VARCHAR NOT NULL,
           name            VARCHAR NOT NULL,
           price           INT DEFAULT 0,
-          productNumber   INT,
+          productNumber   INT PRIMARY KEY,
           productImages   TEXT[]
         )`);
 
+        // exists
         if (!newDB.success) {
+          const clearTable = await DB.query(`
+            DROP TABLE product
+          `);
+
+          const newDB = await DB.query(`
+            CREATE TABLE product (
+              sku             VARCHAR,
+              name            VARCHAR NOT NULL,
+              price           INT DEFAULT 0,
+              productNumber   INT PRIMARY KEY,
+              productImages   TEXT[]
+            )
+          `);
+
           return {
-            message: "wow error."
+            info: newDB,
+            message: "Table cleared."
           };
         }
 
